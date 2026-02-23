@@ -1,0 +1,452 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  INSPECTOR
+  CASHIER
+  INSURER_USER
+  AGENT
+}
+
+enum InspectorStatus {
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+}
+
+enum VehicleCategory {
+  PRIVATE
+  PSV
+  COMMERCIAL
+  SCHOOL
+  DRIVING_SCHOOL
+  GOVERNMENT
+  TRAILER
+  MOTORCYCLE
+  THREE_WHEELER
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+}
+
+enum InspectionStatus {
+  IN_PROGRESS
+  PASSED
+  FAILED
+  ABORTED
+}
+
+enum InspectionType {
+  ANNUAL
+  PRIVATE_OVER_4YRS
+  SCHOOL
+  PRE_REGISTRATION
+  ACCIDENT
+  CHANGE_OF_PARTICULARS
+  POLICE
+  RE_REGISTRATION
+  SALVAGE_B
+}
+
+enum ItemGroup {
+  BRAKES
+  STRUCTURE
+  EMISSIONS
+  SUSPENSION_STEERING
+  LIGHTING_ELECTRICAL
+  TYRES
+  COMPLIANCE_DEVICES
+  OTHER
+}
+
+enum ResultSeverity {
+  INFO
+  MINOR
+  MAJOR
+  DANGEROUS
+}
+
+enum DefectSeverity {
+  NONE
+  MINOR
+  MAJOR
+  DANGEROUS
+}
+
+enum MediaType {
+  PHOTO_FRONT
+  PHOTO_REAR
+  PHOTO_ODOMETER
+  PHOTO_UNDERBODY
+  VIDEO_CLIP
+  OTHER
+}
+
+enum InsurerStatus {
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+model Tenant {
+  id        Int      @id @default(autoincrement())
+  name      String
+  county    String?
+  cluster   Int?
+  createdAt DateTime @default(now())
+
+  users     User[]
+  vehicles  Vehicle[]
+  bookings  Booking[]
+  sessions  InspectionSession[]
+  auditLogs AuditLog[]
+}
+
+model User {
+  id       Int     @id @default(autoincrement())
+  tenantId Int?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  fullName     String
+  email        String?  @unique
+  phone        String?
+  passwordHash String
+  role         UserRole @default(AGENT)
+
+  inspector   Inspector?
+  insurerUser InsurerUser?
+  agent       Agent?
+
+  auditLogs AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Inspector {
+  id     Int  @id @default(autoincrement())
+  userId Int  @unique
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  licenceNo       String          @unique
+  licenceExpiry   DateTime
+  qualification   String?
+  yearsExperience Int?
+  status          InspectorStatus @default(ACTIVE)
+
+  sessions InspectionSession[]
+}
+
+model Owner {
+  id       Int     @id @default(autoincrement())
+  fullName String
+  idNo     String?
+  phone    String?
+  email    String?
+  address  String?
+
+  vehicles Vehicle[]
+}
+
+model Vehicle {
+  id       Int    @id @default(autoincrement())
+  tenantId Int
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  ownerId Int?
+  owner   Owner? @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+
+  registrationNo String  @unique
+  vin            String?
+  engineNo       String?
+  make           String?
+  model          String?
+  yearOfMfg      Int?
+
+  category     VehicleCategory
+  tareWeightKg Int?
+  engineCc     Int?
+  evBatteryKwh Int?
+
+  telematicsImei      String?
+  speedGovernorSerial String?
+
+  bookings  Booking[]
+  sessions  InspectionSession[]
+  referrals Referral[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([registrationNo])
+  @@index([vin])
+}
+
+model Booking {
+  id       Int    @id @default(autoincrement())
+  tenantId Int
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  vehicleId Int
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  bookingRef          String?
+  bookingFeePaid      Boolean       @default(false)
+  bookingFeeReceiptNo String?
+  bookedForDate       DateTime?
+  status              BookingStatus @default(PENDING)
+
+  sessions InspectionSession[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([vehicleId])
+}
+
+model InspectionItem {
+  id                    Int       @id @default(autoincrement())
+  code                  String    @unique
+  name                  String
+  group                 ItemGroup
+  weightPct             Int
+  requiredForCategories Json?
+
+  results InspectionResult[]
+
+  @@index([group])
+}
+
+model InspectionSession {
+  id       Int    @id @default(autoincrement())
+  tenantId Int
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  vehicleId Int
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  bookingId Int?
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  inspectorId Int?
+  inspector   Inspector? @relation(fields: [inspectorId], references: [id], onDelete: SetNull)
+
+  inspectedAt    DateTime?
+  inspectionType InspectionType
+  odometerKm     Int?
+  notes          String?
+
+  status InspectionStatus @default(IN_PROGRESS)
+
+  passThreshold  Int            @default(70)
+  totalScore     Int            @default(0)
+  defectSeverity DefectSeverity @default(NONE)
+
+  certificate Certificate?
+  results     InspectionResult[]
+  mediaRefs   MediaRef[]
+
+  originalReinspections ReinspectionLink[] @relation("OriginalSession")
+  newReinspection       ReinspectionLink?  @relation("NewSession")
+
+  referrals Referral[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([vehicleId])
+  @@index([inspectionType])
+}
+
+model InspectionResult {
+  id        Int               @id @default(autoincrement())
+  sessionId Int
+  session   InspectionSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  itemId Int
+  item   InspectionItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  measuredValueNum  Decimal?
+  measuredValueText String?
+  pass              Boolean
+  severity          ResultSeverity @default(INFO)
+  remarks           String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([sessionId, itemId])
+  @@index([sessionId])
+  @@index([itemId])
+}
+
+model Certificate {
+  id        Int               @id @default(autoincrement())
+  sessionId Int               @unique
+  session   InspectionSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  certificateNo    String   @unique
+  issuedAt         DateTime @default(now())
+  expiresAt        DateTime
+  stickerNo        String?  @unique
+  reportPdfUrl     String?
+  verificationHash String   @unique
+
+  @@index([certificateNo])
+}
+
+model ReinspectionLink {
+  id                Int     @id @default(autoincrement())
+  originalSessionId Int
+  newSessionId      Int     @unique
+  freeWithin14Days  Boolean @default(false)
+  reason            String?
+
+  originalSession InspectionSession @relation("OriginalSession", fields: [originalSessionId], references: [id], onDelete: Cascade)
+  newSession      InspectionSession @relation("NewSession", fields: [newSessionId], references: [id], onDelete: Cascade)
+
+  @@index([originalSessionId])
+}
+
+model MediaRef {
+  id        Int               @id @default(autoincrement())
+  sessionId Int
+  session   InspectionSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  type       MediaType
+  storageUrl String
+  sha256     String?
+  capturedAt DateTime  @default(now())
+
+  cctvCameraId String?
+  cctvStartTs  DateTime?
+  cctvEndTs    DateTime?
+
+  @@index([sessionId])
+}
+
+model AuditLog {
+  id       Int    @id @default(autoincrement())
+  tenantId Int
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  actorUserId Int?
+  actor       User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  action     String
+  entityType String
+  entityId   String
+  ip         String?
+  userAgent  String?
+
+  beforeJson Json?
+  afterJson  Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([entityType, entityId])
+}
+
+model Insurer {
+  id            Int           @id @default(autoincrement())
+  name          String        @unique
+  contactPerson String?
+  email         String?
+  phone         String?
+  status        InsurerStatus @default(ACTIVE)
+
+  users        InsurerUser[]
+  apiKeys      ApiKey[]
+  apiUsageLogs ApiUsageLog[]
+  agents       Agent[]
+}
+
+model InsurerUser {
+  id        Int     @id @default(autoincrement())
+  insurerId Int
+  insurer   Insurer @relation(fields: [insurerId], references: [id], onDelete: Cascade)
+
+  userId Int  @unique
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ApiKey {
+  id        Int     @id @default(autoincrement())
+  insurerId Int
+  insurer   Insurer @relation(fields: [insurerId], references: [id], onDelete: Cascade)
+
+  name    String
+  keyHash String @unique
+  scopes  Json?
+
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([insurerId])
+}
+
+model ApiUsageLog {
+  id        Int     @id @default(autoincrement())
+  insurerId Int
+  insurer   Insurer @relation(fields: [insurerId], references: [id], onDelete: Cascade)
+
+  endpoint   String
+  vehicleId  Int?
+  statusCode Int
+  responseMs Int
+  createdAt  DateTime @default(now())
+
+  @@index([insurerId])
+}
+
+model Agent {
+  id     Int   @id @default(autoincrement())
+  userId Int?  @unique
+  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  insurerId Int?
+  insurer   Insurer? @relation(fields: [insurerId], references: [id], onDelete: SetNull)
+
+  fullName String
+  phone    String?
+  email    String?
+  status   String  @default("ACTIVE")
+
+  referrals Referral[]
+}
+
+model Referral {
+  id      Int   @id @default(autoincrement())
+  agentId Int
+  agent   Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  vehicleId Int
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  sessionId Int?
+  session   InspectionSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  referredAt        DateTime @default(now())
+  convertedToPolicy Boolean  @default(false)
+  notes             String?
+
+  @@index([agentId])
+  @@index([vehicleId])
+}
