@@ -1,5 +1,5 @@
+// src/prisma.js
 import { PrismaClient } from "@prisma/client";
 
-export const prisma = new PrismaClient({
-  log: ["error", "warn"]
-});
+const prisma = new PrismaClient();
+export default prisma;
